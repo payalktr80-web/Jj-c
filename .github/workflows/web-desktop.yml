@@ -31,12 +31,22 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install websockify
 
-          # Start TightVNC Service
+          # Ensure TightVNC service is running
           Start-Service tvnserver
+          Start-Sleep -Seconds 3
 
-          # Start websockify in the background on port 6080 pointing to VNC port 5900
-          Start-Process -NoNewWindow -FilePath "python" -ArgumentList "-m websockify --web C:\noVNC 6080 localhost:5900"
+          # Start websockify explicitly bound to 127.0.0.1:6080 and log errors
+          Start-Process -NoNewWindow -FilePath "python" -ArgumentList "-m websockify --web C:\noVNC 127.0.0.1:6080 127.0.0.1:5900" -RedirectStandardError "C:\ws_err.log" -RedirectStandardOutput "C:\ws_out.log"
           Start-Sleep -Seconds 5
+
+          # Verify port 6080 is actually listening before starting tunnel
+          if (-not (Get-NetTCPConnection -LocalPort 6080 -ErrorAction SilentlyContinue)) {
+              Write-Host "ERROR: Websockify failed to bind to port 6080! Error log:"
+              if (Test-Path "C:\ws_err.log") { Get-Content "C:\ws_err.log" }
+              exit 1
+          } else {
+              Write-Host "SUCCESS: Websockify is listening on 127.0.0.1:6080"
+          }
 
       - name: Start Cloudflare Tunnel and Keep Alive
         shell: powershell
@@ -44,8 +54,8 @@ jobs:
           # Refresh environment variables in this step as well
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
-          # Start cloudflared and log output
-          Start-Process -NoNewWindow -FilePath "cloudflared" -ArgumentList "tunnel --url http://localhost:6080 --logfile C:\cf.log"
+          # Start cloudflared pointed at IPv4 127.0.0.1:6080 and log output
+          Start-Process -NoNewWindow -FilePath "cloudflared" -ArgumentList "tunnel --url http://127.0.0.1:6080 --logfile C:\cf.log"
           
           Write-Host "Waiting for Cloudflare Tunnel URL..."
           
